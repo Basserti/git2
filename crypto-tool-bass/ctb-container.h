@@ -61,7 +61,11 @@ struct metadata
 				uint64_t block_count;
 				uint32_t block_size; // 24 byte
 			} file;
-			struct {} key;
+			struct {
+				uint64_t orig_length;
+				uint64_t block_count;
+				uint32_t block_size; // 24 byte
+			} key;
 			struct {} dh_params;
 	};
 
