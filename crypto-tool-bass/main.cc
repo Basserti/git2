@@ -223,8 +223,8 @@ void crypto_container(std::string name_file, std::string name_key_cont_file){
 	dst_file.write(reinterpret_cast<char*>(&md), FILE_METADATA_SIZE);
 	dst_file.write(name_file.c_str(), name_length + 1);
 
-	uint8_t key[16] {};
-	{
+
+
 		std::ifstream src2_file;
 			src2_file.open(name_key_cont_file.c_str(), std::ios::binary);
 			if(!src2_file.is_open())
@@ -260,13 +260,14 @@ void crypto_container(std::string name_file, std::string name_key_cont_file){
 					FILE_METADATA_SIZE);
 			src2_file.seekg(pos_after_header + md2.length);
 
+			uint8_t key[16] {};
 				src2_file.read(reinterpret_cast<char*>(&key[0]),
 						16);
-				std::cout << reinterpret_cast<char*>(&key[0]) << std::endl;
+				//std::cout << reinterpret_cast<char*>(&key[0]) << std::endl;
 
 			src2_file.close();
 			std::cout << "Key read OK!" << std::endl;
-	}
+
 
 	for (uint64_t block = 0; block < md.file.block_count; block++)
 		{
@@ -280,8 +281,8 @@ void crypto_container(std::string name_file, std::string name_key_cont_file){
 			forMerge[0] = buffer[2];
 			forMerge[1] = buffer[3];
 			uint16_t Ri =  *((uint16_t*)forMerge);
-			std::cout << " " <<std::endl;
-			std::cout << Li << " " << Ri <<std::endl;
+			//std::cout << " " <<std::endl;
+			//std::cout << Li << " " << Ri <<std::endl;
 
 			for(uint16_t ttt=0; ttt<8; ttt++)
 			{
@@ -296,8 +297,8 @@ void crypto_container(std::string name_file, std::string name_key_cont_file){
 			uint16_t Sx = (T_SWAP[a[3]] << 12) | (T_SWAP[a[2]] << 8) | (T_SWAP[a[1]] << 4) | (T_SWAP[a[0]] << 0);
 
 			uint8_t *forMerge2 = new uint8_t[2];
-			forMerge2[0] = key[0];
-			forMerge2[1] = key[1];
+			forMerge2[0] = key[ttt * 2];
+			forMerge2[1] = key[ttt * 2 + 1];
 			uint16_t key_buff =  *((uint16_t*)forMerge2);
 
 			Sx ^= key_buff;
@@ -307,7 +308,7 @@ void crypto_container(std::string name_file, std::string name_key_cont_file){
 			uint16_t oldLi = Li;
 			Li = Ri ^ Sx;
 			Ri = oldLi;
-			std::cout << Li << " " << Ri <<std::endl;
+			//std::cout << Li << " " << Ri <<std::endl;
 			}
 			//std::cout << reinterpret_cast<char*>(&Ri) << std::endl;
 			//std::cout << reinterpret_cast<char*>(&Li) << std::endl;
@@ -364,8 +365,8 @@ void extract_crypto_container(std::string name_file, std::string name_key_cont_f
 		dst_file.open(orig_file_name.c_str(), std::ios::binary);
 		src_file.seekg(pos_after_header + md.length);
 
-		uint8_t key2[16] {};
-		{
+
+
 				std::ifstream src2_file;
 					src2_file.open(name_key_cont_file.c_str(), std::ios::binary);
 					if(!src2_file.is_open())
@@ -394,24 +395,24 @@ void extract_crypto_container(std::string name_file, std::string name_key_cont_f
 					}
 					src2_file.seekg(hdr2.header_size);
 
-					uint64_t pos_after_header = src2_file.tellg();
+					uint64_t pos_after_header2 = src2_file.tellg();
 
 					metadata md2 {};
 					src2_file.readsome(reinterpret_cast<char*>(&md2),
 							FILE_METADATA_SIZE);
-					src2_file.seekg(pos_after_header + md2.length);
+					src2_file.seekg(pos_after_header2 + md2.length);
 
-
+					uint8_t key2[16] {};
 						src2_file.read(reinterpret_cast<char*>(&key2[0]),
 								16);
-						for(uint32_t ewq = 0; ewq < sizeof(key2)/sizeof(key2[0]);ewq++){
+						/*for(uint32_t ewq = 0; ewq < sizeof(key2)/sizeof(key2[0]);ewq++){
 							std::cout << key2[ewq] << std::endl;
 						}
-						std::cout << reinterpret_cast<char*>(&key2[0]) << std::endl;
+						std::cout << reinterpret_cast<char*>(&key2[0]) << std::endl;*/
 
 					src2_file.close();
 					std::cout << "Key read OK!" << std::endl;
-		}
+
 
 		while(md.file.orig_length > 0)
 			{
@@ -426,8 +427,8 @@ void extract_crypto_container(std::string name_file, std::string name_key_cont_f
 					forMerge[0] = buffer[2];
 					forMerge[1] = buffer[3];
 				uint16_t Ri =  *((uint16_t*)forMerge);
-				std::cout << " " <<std::endl;
-				std::cout << Li << " " << Ri <<std::endl;
+				//std::cout << " " <<std::endl;
+				//std::cout << Li << " " << Ri <<std::endl;
 
 				for(uint16_t ttt=0; ttt<8; ttt++)
 				{
@@ -454,7 +455,7 @@ void extract_crypto_container(std::string name_file, std::string name_key_cont_f
 					Li = Ri ^ Sx;
 					Ri = oldLi;
 
-					std::cout << Li << " " << Ri <<std::endl;
+					//std::cout << Li << " " << Ri <<std::endl;
 
 				}
 
@@ -480,12 +481,13 @@ int main(int argc, char ** argv)
 {
 	for (int i = 0; i < argc; i++)
 		std::cout << argv[i] << std::endl;
-	std::string name_file = "test.txt";
+	std::string name_file;
 	std::string key_cont_name = "1-key_cont.ctb";
 	uint64_t key_length;
 	std::cout << "File name:" << std::endl;
-	//std::cin >> name_file;
+	std::cin >> name_file;
 	std::cout << "Key cont name:" << std::endl;
+	std::cout << key_cont_name << std::endl;
 	//std::cin >> key_cont_name;
 	//std::cout << "Key length:" << std::endl;
 	//std::cin >> key_length;
