@@ -1,9 +1,3 @@
-/*
- * main.cc
- *
- *  Created on: 22 ����. 2021 �.
- *      Author: Lev
- */
 #include <iostream>
 #include <fstream>
 #include <cstring>
@@ -16,14 +10,94 @@
 
 #include "ctb-container.h"
 const uint32_t BLOCK_SIZE = 32;
+const char * CRYPT_NAME[4] = {"RAW_", "ECB_", "CBC_", "CTR_"};
+const char * IV = "dota";
 const uint32_t T_SWAP[16] = {3, 5, 4, 8, 9, 1, 11, 13, 12, 0, 15, 2, 7, 6, 10, 14};
 //                           0  1  2  3  4  5   6   7   8  9  10  11 12 13 14  15
 
+void network_feistel(uint16_t &Li,uint16_t &Ri,uint8_t key[], bool crypt)
+{
+	for(uint16_t step = 0; step < 8; step++)
+	{
+
+		uint16_t a[4] {};
+		uint32_t y = 0;
+		for(uint32_t i = 0; i < 16; i=i+4)
+		{
+			a[y] = (((Li >> (i+3)) & 1) << 0) | (((Li >> (i+2)) & 1) << 1) | (((Li >> (i+1)) & 1) << 2) | (((Li >> i) & 1) << 3);
+			y += 1;
+		}
+
+		uint16_t Sx = (T_SWAP[a[3]] << 12) | (T_SWAP[a[2]] << 8) | (T_SWAP[a[1]] << 4) | (T_SWAP[a[0]] << 0);
+
+		uint16_t key_buff;
+		if (crypt == true)
+			key_buff = (key[step * 2] << 8) + key[step * 2 + 1];
+		else
+			key_buff = (key[15 - (step * 2 + 1)] << 8) + key[15 - (step * 2)];
+
+		Sx ^= key_buff;
+
+		Sx = (Sx << 3) | (Sx >> (16-3));
+
+		uint16_t oldLi = Li;
+		Li = Ri ^ Sx;
+		Ri = oldLi;
+		//std::cout << Li << " " << Ri << std::endl;
+	}
+
+	std::swap (Li, Ri);
+}
+
+void increment_block(uint8_t * block, size_t sz)
+{
+	unsigned current_byte = 0;
+	while (current_byte < sz)
+	{
+		uint8_t old_value = block[current_byte];
+		uint8_t new_value = old_value + 1;
+		block[current_byte] = new_value;
+		if (new_value > old_value) return;
+		current_byte++;
+	}
+}
+
 void create_container(std::string name_file)
 {
+
+	int choose_crypto;
+	std::string name_key_cont_file;
+	//for(;;)
+	{
+		std::cout << "Choose the type of encryption:\n"
+				<< "1. RAW\n"
+				<< "2. ECB\n"
+				<< "3. CBC\n"
+				<< "4. CTR"
+				<< std::endl;
+		std::cin >> choose_crypto;
+		choose_crypto -= 1;
+		switch(choose_crypto)
+		{
+			case 0:
+			{
+				std::cout << "Selected RAW encryption" << std::endl;
+				break;
+			}
+			case 1:
+			case 2:
+			case 3:
+			{
+				std::cout << "Enter KEY container name:" << std::endl;
+				//name_key_cont_file = "1-key_cont.ctb"; // DEBAG
+				std::cin >> name_key_cont_file;
+				std::cout <<"Key: " << name_key_cont_file << std::endl;
+				break;
+			}
+		}
+	}
+
 	std::ifstream src_file;
-	std::ofstream dst_file;
-	std::string container_name_file = name_file + "-container.ctb";
 	src_file.open(name_file.c_str(), std::ios::binary | std::ios::ate);
 
 	if(!src_file.is_open())
@@ -34,9 +108,14 @@ void create_container(std::string name_file)
 		return;
 	}
 
+
 	size_t filesize = src_file.tellg();
 	src_file.seekg(0);
 
+	std::cout << "Start create encryption container" << std::endl;
+
+	std::ofstream dst_file;
+	std::string container_name_file = CRYPT_NAME[choose_crypto] + name_file + "-container.ctb";
 	dst_file.open(container_name_file.c_str(), std::ios::binary);
 
 	using namespace ctb::container;
@@ -44,7 +123,9 @@ void create_container(std::string name_file)
 	header hdr{};
 	hdr.magic = MAGIC;
 	hdr.header_size = HEADER_SIZE;
-	hdr.payload = RAW;
+	hdr.payload = ENCRYPTED_DATA;
+	hdr.crypt = choose_crypto;
+
 	dst_file.write(reinterpret_cast<char*>(&hdr), HEADER_SIZE);
 
 	metadata md{};
@@ -58,31 +139,224 @@ void create_container(std::string name_file)
 	dst_file.write(reinterpret_cast<char*>(&md), FILE_METADATA_SIZE);
 	dst_file.write(name_file.c_str(), name_length + 1);
 
+	uint32_t word_crypt = *((uint32_t*)IV);
+
 	for (uint64_t block = 0; block < md.file.block_count; block++)
 	{
 		uint8_t buffer[BLOCK_SIZE / 8] {};
 		src_file.read(reinterpret_cast<char*>(&buffer[0]),
 				BLOCK_SIZE / 8);
-		dst_file.write(reinterpret_cast<char*>(&buffer[0]),
-				BLOCK_SIZE / 8);
+		switch(choose_crypto)
+		{
+			case 0:
+				{
+					dst_file.write(reinterpret_cast<char*>(&buffer[0]),
+							BLOCK_SIZE / 8);
+					break;
+				}
+			case 1:
+				{
+					std::ifstream src2_file;
+					src2_file.open(name_key_cont_file.c_str(), std::ios::binary);
+					if(!src2_file.is_open())
+					{
+						std::cerr <<
+								"File dont open!"
+								<< std::endl;
+						return;
+					}
+					using namespace ctb::container;
+					header hdr2 {};
+					src2_file.read(reinterpret_cast<char*>(&hdr2),
+								sizeof(header));
+					if (hdr2.magic != MAGIC)
+					{
+						std::cerr <<
+								"File dont open (MAGIC ERROR)!"
+								<< std::endl;
+						return;
+					}
+					if (hdr2.payload != KEY_DATA)
+					{
+						std::cerr <<
+								"File no KEY_DATA data!"
+								<< std::endl;
+							return;
+					}
+					src2_file.seekg(hdr2.header_size);
+
+					uint64_t pos_after_header2 = src2_file.tellg();
+
+					metadata md2 {};
+					src2_file.readsome(reinterpret_cast<char*>(&md2),
+							FILE_METADATA_SIZE);
+					src2_file.seekg(pos_after_header2 + md2.length);
+
+					uint8_t key[16] = {};
+					src2_file.read(reinterpret_cast<char*>(&key[0]),
+							16);
+
+					src2_file.close();
+					//std::cout << "Key read OK!" << std::endl;
+
+					uint16_t Li =  (buffer[3] << 8) + buffer[2];
+					uint16_t Ri =  (buffer[1] << 8) + buffer[0];
+					//std::cout << Li << " " << Ri << std::endl;
+					network_feistel(Li, Ri, key, true);
+					//std::cout << " " << std::endl;
+					uint32_t cryptParts = (Li << 16) + Ri;
+
+					dst_file.write(reinterpret_cast<char*>(&cryptParts),
+							BLOCK_SIZE / 8);
+					break;
+				}
+			case 2:
+				{
+					std::ifstream src2_file;
+					src2_file.open(name_key_cont_file.c_str(), std::ios::binary);
+					if(!src2_file.is_open())
+					{
+						std::cerr <<
+								"File dont open!"
+								<< std::endl;
+						return;
+					}
+					using namespace ctb::container;
+					header hdr2 {};
+					src2_file.read(reinterpret_cast<char*>(&hdr2),
+								sizeof(header));
+					if (hdr2.magic != MAGIC)
+					{
+						std::cerr <<
+								"File dont open (MAGIC ERROR)!"
+								<< std::endl;
+						return;
+					}
+					if (hdr2.payload != KEY_DATA)
+					{
+						std::cerr <<
+								"File no KEY_DATA data!"
+								<< std::endl;
+							return;
+					}
+					src2_file.seekg(hdr2.header_size);
+
+					uint64_t pos_after_header2 = src2_file.tellg();
+
+					metadata md2 {};
+					src2_file.readsome(reinterpret_cast<char*>(&md2),
+							FILE_METADATA_SIZE);
+					src2_file.seekg(pos_after_header2 + md2.length);
+
+					uint8_t key[16] = {};
+					src2_file.read(reinterpret_cast<char*>(&key[0]),
+							16);
+
+					src2_file.close();
+
+					uint32_t word = (buffer[3] << 24) + (buffer[2] << 16)
+							+ (buffer[1] << 8) + buffer[0];
+					word ^= word_crypt;
+					uint16_t Li =  word >> 16 & 0xFFFF;
+					uint16_t Ri =  word & 0xFFFF;
+					network_feistel(Li, Ri, key, true);
+					word_crypt = (Li << 16) + Ri;
+					dst_file.write(reinterpret_cast<char*>(&word_crypt),
+												BLOCK_SIZE / 8);
+					break;
+				}
+			case 3:
+				{
+					std::ifstream src2_file;
+					src2_file.open(name_key_cont_file.c_str(), std::ios::binary);
+					if(!src2_file.is_open())
+					{
+						std::cerr <<
+								"File dont open!"
+								<< std::endl;
+						return;
+					}
+					using namespace ctb::container;
+					header hdr2 {};
+					src2_file.read(reinterpret_cast<char*>(&hdr2),
+								sizeof(header));
+					if (hdr2.magic != MAGIC)
+					{
+						std::cerr <<
+								"File dont open (MAGIC ERROR)!"
+								<< std::endl;
+						return;
+					}
+					if (hdr2.payload != KEY_DATA)
+					{
+						std::cerr <<
+								"File no KEY_DATA data!"
+								<< std::endl;
+							return;
+					}
+					src2_file.seekg(hdr2.header_size);
+
+					uint64_t pos_after_header2 = src2_file.tellg();
+
+					metadata md2 {};
+					src2_file.readsome(reinterpret_cast<char*>(&md2),
+							FILE_METADATA_SIZE);
+					src2_file.seekg(pos_after_header2 + md2.length);
+
+					uint8_t key[16] = {};
+					src2_file.read(reinterpret_cast<char*>(&key[0]),
+							16);
+
+					src2_file.close();
+
+					uint16_t Li =  word_crypt >> 16 & 0xFFFF;
+					uint16_t Ri =  word_crypt & 0xFFFF;
+
+					network_feistel(Li, Ri, key, true);
+
+					uint32_t word = (buffer[3] << 24) + (buffer[2] << 16)
+							+ (buffer[1] << 8) + buffer[0];
+					word ^= ((Li << 16) + Ri);
+
+					dst_file.write(reinterpret_cast<char*>(&word),
+							BLOCK_SIZE / 8);
+
+					uint8_t word_crypt_to_blocks[4] {};
+					word_crypt_to_blocks[3] = word_crypt & 0xFF;
+					word_crypt_to_blocks[2] = word_crypt >> 8 & 0xFF;
+					word_crypt_to_blocks[1] = word_crypt >> 16 & 0xFF;
+					word_crypt_to_blocks[0] = word_crypt >> 24 & 0xFF;
+					increment_block(&word_crypt_to_blocks[0], BLOCK_SIZE);
+					word_crypt = (word_crypt_to_blocks[3] << 24)
+							+ (word_crypt_to_blocks[2] << 16)
+							+ (word_crypt_to_blocks[1] << 8)
+							+ word_crypt_to_blocks[0];
+
+					break;
+				}
+		}
 	}
 
 	src_file.close();
 	dst_file.close();
-	std::cout << "Create container" << std::endl;
+	std::cout << "Create encryption container" << std::endl;
 
 }
 
 void extract_container(std::string name_file)
 {
 	std::ifstream src_file;
-	std::ofstream dst_file;
-	std::string container_name_file = name_file + "-container.ctb";
-
+	src_file.open(name_file.c_str(), std::ios::binary);
+	if(!src_file.is_open())
+		{
+			std::cerr <<
+					"File dont open!"
+					<< std::endl;
+			return;
+		}
 
 	using namespace ctb::container;
 
-	src_file.open(container_name_file.c_str(), std::ios::binary);
 	header hdr {};
 	src_file.read(reinterpret_cast<char*>(&hdr),
 			sizeof(header));
@@ -92,12 +366,53 @@ void extract_container(std::string name_file)
 					<< std::endl;
 			return;
 		}
-	if (hdr.payload != RAW) {
+
+	if (hdr.payload != ENCRYPTED_DATA) {
 		std::cerr <<
-				"File no RAW data!"
+				"File no ENCRYPTED_DATA data!"
 				<< std::endl;
 		return;
 	}
+
+	int crypto_type = hdr.crypt;
+
+	std::string name_key_cont_file;
+	switch(crypto_type)
+	{
+		case 0:
+		{
+			std::cout << "RAW encryption" << std::endl;
+			break;
+		}
+		case 1:
+		{
+			std::cout << "ECB encryption" << std::endl;
+			std::cout << "Enter KEY container name:" << std::endl;
+			//name_key_cont_file = "1-key_cont.ctb"; // DEBAG
+			std::cin >> name_key_cont_file;
+			std::cout <<"Key: " << name_key_cont_file << std::endl;
+			break;
+		}
+		case 2:
+		{
+			std::cout << "CBC encryption" << std::endl;
+			std::cout << "Enter KEY container name:" << std::endl;
+			//name_key_cont_file = "1-key_cont.ctb"; // DEBAG
+			std::cin >> name_key_cont_file;
+			std::cout <<"Key: " << name_key_cont_file << std::endl;
+			break;
+		}
+		case 3:
+		{
+			std::cout << "CTR encryption" << std::endl;
+			std::cout << "Enter KEY container name:" << std::endl;
+			//name_key_cont_file = "1-key_cont.ctb"; // DEBAG
+			std::cin >> name_key_cont_file;
+			std::cout <<"Key: " << name_key_cont_file << std::endl;
+			break;
+		}
+	}
+
 	src_file.seekg(hdr.header_size);
 
 	uint64_t pos_after_header = src_file.tellg();
@@ -111,9 +426,12 @@ void extract_container(std::string name_file)
 	{
 		orig_file_name += c;
 	}
-
+	std::cout << "Start extract encryption container" << std::endl;
+	std::ofstream dst_file;
 	dst_file.open(orig_file_name.c_str(), std::ios::binary);
 	src_file.seekg(pos_after_header + md.length);
+
+	uint32_t word_crypt = *((uint32_t*)IV);
 
 	while(md.file.orig_length > 0)
 		{
@@ -121,11 +439,199 @@ void extract_container(std::string name_file)
 			src_file.read(reinterpret_cast<char*>(&buffer[0]),
 					BLOCK_SIZE / 8);
 			uint64_t bytes_to_write = std::min<unsigned long>(4UL, md.file.orig_length);
-			dst_file.write(
-					reinterpret_cast<char*>(&buffer[0]),
-					bytes_to_write);
-			md.file.orig_length -= bytes_to_write;
 
+			switch(crypto_type)
+			{
+				case 0:
+					{
+						dst_file.write(reinterpret_cast<char*>(&buffer[0]),
+								bytes_to_write);
+						break;
+					}
+				case 1:
+					{
+						std::ifstream src2_file;
+						src2_file.open(name_key_cont_file.c_str(), std::ios::binary);
+						if(!src2_file.is_open())
+						{
+							std::cerr <<
+									"File dont open!"
+									<< std::endl;
+							return;
+						}
+						using namespace ctb::container;
+						header hdr2 {};
+						src2_file.read(reinterpret_cast<char*>(&hdr2),
+								sizeof(header));
+						if (hdr2.magic != MAGIC)
+						{
+							std::cerr <<
+									"File dont open (MAGIC ERROR)!"
+									<< std::endl;
+								return;
+						}
+						if (hdr2.payload != KEY_DATA)
+						{
+								std::cerr <<
+									"File no KEY_DATA data!"
+									<< std::endl;
+								return;
+						}
+						src2_file.seekg(hdr2.header_size);
+
+						uint64_t pos_after_header2 = src2_file.tellg();
+
+						metadata md2 {};
+						src2_file.readsome(reinterpret_cast<char*>(&md2),
+								FILE_METADATA_SIZE);
+						src2_file.seekg(pos_after_header2 + md2.length);
+
+						uint8_t key[16] {};
+						src2_file.read(reinterpret_cast<char*>(&key[0]),
+									16);
+
+						src2_file.close();
+						//std::cout << "Key read OK!" << std::endl;
+
+						uint16_t Li =  (buffer[3] << 8) + buffer[2];
+						uint16_t Ri =  (buffer[1] << 8) + buffer[0];
+						//std::cout << Li << " " << Ri << std::endl;
+						network_feistel(Li, Ri, key, false);
+						//std::cout << " " << std::endl;
+
+						uint32_t cryptParts = (Li << 16) + Ri;
+						dst_file.write(reinterpret_cast<char*>(&cryptParts),
+								bytes_to_write);
+						break;
+					}
+				case 2:
+					{
+						std::ifstream src2_file;
+						src2_file.open(name_key_cont_file.c_str(), std::ios::binary);
+						if(!src2_file.is_open())
+						{
+							std::cerr <<
+									"File dont open!"
+									<< std::endl;
+							return;
+						}
+						using namespace ctb::container;
+						header hdr2 {};
+						src2_file.read(reinterpret_cast<char*>(&hdr2),
+								sizeof(header));
+						if (hdr2.magic != MAGIC)
+						{
+							std::cerr <<
+									"File dont open (MAGIC ERROR)!"
+									<< std::endl;
+								return;
+						}
+						if (hdr2.payload != KEY_DATA)
+						{
+								std::cerr <<
+									"File no KEY_DATA data!"
+									<< std::endl;
+								return;
+						}
+						src2_file.seekg(hdr2.header_size);
+
+						uint64_t pos_after_header2 = src2_file.tellg();
+
+						metadata md2 {};
+						src2_file.readsome(reinterpret_cast<char*>(&md2),
+								FILE_METADATA_SIZE);
+						src2_file.seekg(pos_after_header2 + md2.length);
+
+						uint8_t key[16] {};
+						src2_file.read(reinterpret_cast<char*>(&key[0]),
+									16);
+
+						src2_file.close();
+						//std::cout << "Key read OK!" << std::endl;
+
+						uint16_t Li =  (buffer[3] << 8) + buffer[2];
+						uint16_t Ri =  (buffer[1] << 8) + buffer[0];
+						uint32_t LiRi = (Li << 16) + Ri;
+						network_feistel(Li, Ri, key, false);
+						uint32_t word = (Li << 16) + Ri;
+						word ^= word_crypt;
+						word_crypt = LiRi;
+						dst_file.write(reinterpret_cast<char*>(&word),
+													BLOCK_SIZE / 8);
+						break;
+					}
+				case 3:
+					{
+						std::ifstream src2_file;
+						src2_file.open(name_key_cont_file.c_str(), std::ios::binary);
+						if(!src2_file.is_open())
+						{
+							std::cerr <<
+									"File dont open!"
+									<< std::endl;
+							return;
+						}
+						using namespace ctb::container;
+						header hdr2 {};
+						src2_file.read(reinterpret_cast<char*>(&hdr2),
+								sizeof(header));
+						if (hdr2.magic != MAGIC)
+						{
+							std::cerr <<
+									"File dont open (MAGIC ERROR)!"
+									<< std::endl;
+								return;
+						}
+						if (hdr2.payload != KEY_DATA)
+						{
+								std::cerr <<
+									"File no KEY_DATA data!"
+									<< std::endl;
+								return;
+						}
+						src2_file.seekg(hdr2.header_size);
+
+						uint64_t pos_after_header2 = src2_file.tellg();
+
+						metadata md2 {};
+						src2_file.readsome(reinterpret_cast<char*>(&md2),
+								FILE_METADATA_SIZE);
+						src2_file.seekg(pos_after_header2 + md2.length);
+
+						uint8_t key[16] {};
+						src2_file.read(reinterpret_cast<char*>(&key[0]),
+									16);
+
+						src2_file.close();
+						//std::cout << "Key read OK!" << std::endl;
+
+						uint16_t Li =  word_crypt >> 16 & 0xFFFF;
+						uint16_t Ri =  word_crypt & 0xFFFF;
+
+						network_feistel(Li, Ri, key, true);
+
+						uint32_t word = (buffer[3] << 24) + (buffer[2] << 16)
+								+ (buffer[1] << 8) + buffer[0];
+						word ^= ((Li << 16) + Ri);
+
+						dst_file.write(reinterpret_cast<char*>(&word),
+								BLOCK_SIZE / 8);
+
+						uint8_t word_crypt_to_blocks[4] {};
+						word_crypt_to_blocks[3] = word_crypt & 0xFF;
+						word_crypt_to_blocks[2] = word_crypt >> 8 & 0xFF;
+						word_crypt_to_blocks[1] = word_crypt >> 16 & 0xFF;
+						word_crypt_to_blocks[0] = word_crypt >> 24 & 0xFF;
+						increment_block(&word_crypt_to_blocks[0], BLOCK_SIZE);
+						word_crypt = (word_crypt_to_blocks[3] << 24)
+								+ (word_crypt_to_blocks[2] << 16)
+								+ (word_crypt_to_blocks[1] << 8)
+								+ word_crypt_to_blocks[0];
+
+						break;
+					}
+			}
+			md.file.orig_length -= bytes_to_write;
 		}
 
 	dst_file.close();
@@ -153,6 +659,7 @@ void key_container(std::string name_file, uint64_t key_length)
 	hdr.magic = MAGIC;
 	hdr.header_size = HEADER_SIZE;
 	hdr.payload = KEY_DATA;
+	hdr.crypt = RAW_CRYPT;
 	src_file.write(reinterpret_cast<char*>(&hdr), HEADER_SIZE);
 
 	metadata md{};
@@ -184,320 +691,48 @@ void key_container(std::string name_file, uint64_t key_length)
 	std::cout << "Create key container" << std::endl;
 }
 
-void crypto_container(std::string name_file, std::string name_key_cont_file){
-
-	std::ifstream src_file;
-	std::ofstream dst_file;
-	std::string container_name_file = name_file + "-crypto_cont.ctb";
-	src_file.open(name_file.c_str(), std::ios::binary | std::ios::ate);
-
-	if(!src_file.is_open())
-	{
-		std::cerr <<
-				"File dont open!"
-				<< std::endl;
-		return;
-	}
-
-	size_t filesize = src_file.tellg();
-	src_file.seekg(0);
-
-	dst_file.open(container_name_file.c_str(), std::ios::binary);
-
-	using namespace ctb::container;
-
-	header hdr{};
-	hdr.magic = MAGIC;
-	hdr.header_size = HEADER_SIZE;
-	hdr.payload = ENCRYPTED_DATA;
-	dst_file.write(reinterpret_cast<char*>(&hdr), HEADER_SIZE);
-
-	metadata md{};
-	uint32_t name_length =strlen(name_file.c_str());
-	md.length = FILE_METADATA_SIZE + name_length + 1;
-	md.file.orig_length = filesize;
-	md.file.block_size = BLOCK_SIZE;
-	md.file.block_count = filesize / (BLOCK_SIZE / 8);
-	if (filesize % (BLOCK_SIZE / 8) > 0)
-		md.file.block_count++;
-	dst_file.write(reinterpret_cast<char*>(&md), FILE_METADATA_SIZE);
-	dst_file.write(name_file.c_str(), name_length + 1);
-
-
-
-		std::ifstream src2_file;
-			src2_file.open(name_key_cont_file.c_str(), std::ios::binary);
-			if(!src2_file.is_open())
-			{
-				std::cerr <<
-						"File dont open!"
-						<< std::endl;
-				return;
-			}
-			using namespace ctb::container;
-			header hdr2 {};
-			src2_file.read(reinterpret_cast<char*>(&hdr2),
-						sizeof(header));
-			if (hdr2.magic != MAGIC)
-			{
-					std::cerr <<
-						"File dont open (MAGIC ERROR)!"
-						<< std::endl;
-					return;
-			}
-			if (hdr2.payload != KEY_DATA) {
-					std::cerr <<
-						"File no KEY_DATA data!"
-						<< std::endl;
-					return;
-			}
-			src2_file.seekg(hdr2.header_size);
-
-			uint64_t pos_after_header = src2_file.tellg();
-
-			metadata md2 {};
-			src2_file.readsome(reinterpret_cast<char*>(&md2),
-					FILE_METADATA_SIZE);
-			src2_file.seekg(pos_after_header + md2.length);
-
-			uint8_t key[16] {};
-				src2_file.read(reinterpret_cast<char*>(&key[0]),
-						16);
-				//std::cout << reinterpret_cast<char*>(&key[0]) << std::endl;
-
-			src2_file.close();
-			std::cout << "Key read OK!" << std::endl;
-
-
-	for (uint64_t block = 0; block < md.file.block_count; block++)
-		{
-			uint8_t buffer[BLOCK_SIZE / 8] {};
-			src_file.read(reinterpret_cast<char*>(&buffer[0]),
-					BLOCK_SIZE / 8);
-			uint8_t *forMerge = new uint8_t[2];
-			forMerge[0] = buffer[0];
-			forMerge[1] = buffer[1];
-			uint16_t Li =  *((uint16_t*)forMerge);
-			forMerge[0] = buffer[2];
-			forMerge[1] = buffer[3];
-			uint16_t Ri =  *((uint16_t*)forMerge);
-			//std::cout << " " <<std::endl;
-			//std::cout << Li << " " << Ri <<std::endl;
-
-			for(uint16_t ttt=0; ttt<8; ttt++)
-			{
-			uint16_t a[4] {};
-			uint32_t y = 0;
-			for(uint32_t i = 0; i < 16; i=i+4)
-			{
-				a[y] = (((Li >> (i+3)) & 1) << 0) | (((Li >> (i+2)) & 1) << 1) | (((Li >> (i+1)) & 1) << 2) | (((Li >> i) & 1) << 3);
-				y += 1;
-			}
-
-			uint16_t Sx = (T_SWAP[a[3]] << 12) | (T_SWAP[a[2]] << 8) | (T_SWAP[a[1]] << 4) | (T_SWAP[a[0]] << 0);
-
-			uint8_t *forMerge2 = new uint8_t[2];
-			forMerge2[0] = key[ttt * 2];
-			forMerge2[1] = key[ttt * 2 + 1];
-			uint16_t key_buff =  *((uint16_t*)forMerge2);
-
-			Sx ^= key_buff;
-
-			Sx = (Sx << 3) | (Sx >> (16-3));
-
-			uint16_t oldLi = Li;
-			Li = Ri ^ Sx;
-			Ri = oldLi;
-			//std::cout << Li << " " << Ri <<std::endl;
-			}
-			//std::cout << reinterpret_cast<char*>(&Ri) << std::endl;
-			//std::cout << reinterpret_cast<char*>(&Li) << std::endl;
-			dst_file.write(reinterpret_cast<char*>(&Ri),
-					BLOCK_SIZE / 16);
-			dst_file.write(reinterpret_cast<char*>(&Li),
-								BLOCK_SIZE / 16);
-		}
-
-	src_file.close();
-	dst_file.close();
-	std::cout << "Crypto container" << std::endl;
-}
-
-void extract_crypto_container(std::string name_file, std::string name_key_cont_file)
-{
-	std::ifstream src_file;
-		std::ofstream dst_file;
-		std::string container_name_file = name_file + "-crypto_cont.ctb";
-
-
-		using namespace ctb::container;
-
-		src_file.open(container_name_file.c_str(), std::ios::binary);
-		header hdr {};
-		src_file.read(reinterpret_cast<char*>(&hdr),
-				sizeof(header));
-		if (hdr.magic != MAGIC) {
-				std::cerr <<
-						"File dont open!"
-						<< std::endl;
-				return;
-			}
-		if (hdr.payload != ENCRYPTED_DATA) {
-			std::cerr <<
-					"File no ENCRYPTED_DATA data!"
-					<< std::endl;
-			return;
-		}
-		src_file.seekg(hdr.header_size);
-
-		uint64_t pos_after_header = src_file.tellg();
-
-		metadata md {};
-		src_file.readsome(reinterpret_cast<char*>(&md),
-				FILE_METADATA_SIZE);
-		std::string orig_file_name = "EXTRACTED_CRYPTO_";
-		char c;
-		while ((c = src_file.get()))
-		{
-			orig_file_name += c;
-		}
-
-		dst_file.open(orig_file_name.c_str(), std::ios::binary);
-		src_file.seekg(pos_after_header + md.length);
-
-
-
-				std::ifstream src2_file;
-					src2_file.open(name_key_cont_file.c_str(), std::ios::binary);
-					if(!src2_file.is_open())
-					{
-						std::cerr <<
-								"File dont open!"
-								<< std::endl;
-						return;
-					}
-					using namespace ctb::container;
-					header hdr2 {};
-					src2_file.read(reinterpret_cast<char*>(&hdr2),
-								sizeof(header));
-					if (hdr2.magic != MAGIC)
-					{
-							std::cerr <<
-								"File dont open (MAGIC ERROR)!"
-								<< std::endl;
-							return;
-					}
-					if (hdr2.payload != KEY_DATA) {
-							std::cerr <<
-								"File no KEY_DATA data!"
-								<< std::endl;
-							return;
-					}
-					src2_file.seekg(hdr2.header_size);
-
-					uint64_t pos_after_header2 = src2_file.tellg();
-
-					metadata md2 {};
-					src2_file.readsome(reinterpret_cast<char*>(&md2),
-							FILE_METADATA_SIZE);
-					src2_file.seekg(pos_after_header2 + md2.length);
-
-					uint8_t key2[16] {};
-						src2_file.read(reinterpret_cast<char*>(&key2[0]),
-								16);
-						/*for(uint32_t ewq = 0; ewq < sizeof(key2)/sizeof(key2[0]);ewq++){
-							std::cout << key2[ewq] << std::endl;
-						}
-						std::cout << reinterpret_cast<char*>(&key2[0]) << std::endl;*/
-
-					src2_file.close();
-					std::cout << "Key read OK!" << std::endl;
-
-
-		while(md.file.orig_length > 0)
-			{
-				uint8_t buffer[BLOCK_SIZE / 8] {};
-				src_file.read(reinterpret_cast<char*>(&buffer[0]),
-						BLOCK_SIZE / 8);
-
-				uint8_t *forMerge = new uint8_t[2];
-					forMerge[0] = buffer[0];
-					forMerge[1] = buffer[1];
-				uint16_t Li =  *((uint16_t*)forMerge);
-					forMerge[0] = buffer[2];
-					forMerge[1] = buffer[3];
-				uint16_t Ri =  *((uint16_t*)forMerge);
-				//std::cout << " " <<std::endl;
-				//std::cout << Li << " " << Ri <<std::endl;
-
-				for(uint16_t ttt=0; ttt<8; ttt++)
-				{
-					uint16_t a[4] {};
-					uint32_t y = 0;
-					for(uint32_t i = 0; i < 16; i=i+4)
-					{
-						a[y] = (((Li >> (i+3)) & 1) << 0) | (((Li >> (i+2)) & 1) << 1) | (((Li >> (i+1)) & 1) << 2) | (((Li >> i) & 1) << 3);
-						y += 1;
-					}
-
-					uint16_t Sx = (T_SWAP[a[3]] << 12) | (T_SWAP[a[2]] << 8) | (T_SWAP[a[1]] << 4) | (T_SWAP[a[0]] << 0);
-					//std::cout << Li << " " << Ri <<std::endl;
-					uint8_t *forMerge2 = new uint8_t[2];
-					forMerge2[0] = key2[15 - (ttt * 2 + 1)];
-					forMerge2[1] = key2[15 - (ttt * 2)];
-					uint16_t key_buff =  *((uint16_t*)forMerge2);
-
-					Sx ^= key_buff;
-
-					Sx = (Sx << 3) | (Sx >> (16-3));
-
-					uint16_t oldLi = Li;
-					Li = Ri ^ Sx;
-					Ri = oldLi;
-
-					//std::cout << Li << " " << Ri <<std::endl;
-
-				}
-
-				uint16_t *forMargePart = new uint16_t[2];
-					forMargePart[0] = Ri;
-					forMargePart[1] = Li;
-				uint32_t enc_Part = *((uint32_t*)forMargePart);
-
-				uint64_t bytes_to_write = std::min<unsigned long>(4UL, md.file.orig_length);
-				dst_file.write(reinterpret_cast<char*>(&enc_Part),
-						bytes_to_write);
-				md.file.orig_length -= bytes_to_write;
-
-			}
-
-		dst_file.close();
-		src_file.close();
-
-		std::cout << "Extract Crypto container" << std::endl;
-}
-
 int main(int argc, char ** argv)
 {
 	for (int i = 0; i < argc; i++)
 		std::cout << argv[i] << std::endl;
+	int choose;
+	int key_length = 16;
 	std::string name_file;
-	std::string key_cont_name = "1-key_cont.ctb";
-	uint64_t key_length;
-	std::cout << "File name:" << std::endl;
-	std::cin >> name_file;
-	std::cout << "Key cont name:" << std::endl;
-	std::cout << key_cont_name << std::endl;
-	//std::cin >> key_cont_name;
-	//std::cout << "Key length:" << std::endl;
-	//std::cin >> key_length;
-	std::cout << "Start" << std::endl;
-	//key_container(name_file, key_length);
-	//create_container(name_file);
-	crypto_container(name_file, key_cont_name);
-	//key_from_container(name_file);
-	//extract_container(name_file);
-	extract_crypto_container(name_file, key_cont_name);
+	for (;;)
+	{
+		std::cout << "Choose an action\n"
+				<< "1. Create Key container\n"
+				<< "2. Create encryption container\n"
+				<< "3. Extract encryption container\n"
+				<< "4. Exit"
+				<< std::endl;
+		std::cin >> choose;
+		switch(choose)
+		{
+		case 1:
+			std::cout << "Enter a name for the key container:" << std::endl;
+			std::cin >> name_file;
+			std::cout << "Name: "<< name_file << std::endl;
+			key_container(name_file, key_length);
+			break;
+		case 2:
+			std::cout << "Enter file name:" << std::endl;
+			std::cin >> name_file;
+			std::cout << "Name: "<< name_file << std::endl;
+			//name_file = "test.txt"; // DEBAG
+			create_container(name_file);
+			break;
+		case 3:
+			std::cout << "Enter container name:" << std::endl;
+			std::cin >> name_file;
+			std::cout << "Name: "<< name_file << std::endl;
+			extract_container(name_file);
+			break;
+		case 4:
+			exit(0);
+			break;
+		}
+	}
 
 	return 0;
 }

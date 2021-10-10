@@ -27,13 +27,20 @@ enum payload_type
 {
 	RAW = 0,			// "Сырые" данные
 	KEY_DATA,			// Ключ для сим шифра
-	PRIVATE_KEY,		// Закрытый ключ для асим шифра
-	PUBLIC_KEY,			// Открытый ключ для асим шифра
 	ENCRYPTED_DATA,		// Шифротекст
 	DH_PARAMS,			// TODO потом ????)
 };
 
-constexpr uint32_t HEADER_SIZE = 10;
+enum crypt_type
+{
+	RAW_CRYPT = 0,			// "Сырые" данные
+	ECB_CRYPT,
+	CBC_CRYPT,
+	CTR_CRYPT
+};
+
+
+constexpr uint32_t HEADER_SIZE = 12;
 constexpr uint32_t FILE_METADATA_SIZE = 24;
 
 #pragma pack(push,1)
@@ -44,8 +51,9 @@ struct header
 	uint32_t header_size;
 
 	uint8_t payload;
-	uint8_t padding[1];
-	// 10 byte
+	uint8_t crypt;
+	uint8_t padding[2];
+	// 12 byte
 
 };
 
@@ -57,16 +65,17 @@ struct metadata
 	{
 			struct
 			{
-				uint64_t orig_length;
-				uint64_t block_count;
-				uint32_t block_size; // 24 byte
+				uint64_t orig_length; // 16 byte
+				uint64_t block_count; // 16 byte
+				uint32_t block_size;  // 8 byte
+				// 24 byte
 			} file;
 			struct {
-				uint64_t orig_length;
-				uint64_t block_count;
-				uint32_t block_size; // 24 byte
+				uint64_t orig_length; // 16 byte
+				uint64_t block_count; // 16 byte
+				uint32_t block_size;  // 8 byte
+				// 24 byte
 			} key;
-			struct {} dh_params;
 	};
 
 };
