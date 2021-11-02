@@ -41,39 +41,41 @@ enum crypt_type
 
 
 constexpr uint32_t HEADER_SIZE = 12;
-constexpr uint32_t FILE_METADATA_SIZE = 24;
+constexpr uint32_t FILE_METADATA_SIZE = 28;
+constexpr uint32_t CRC32_POLY = 0xEDB88320;
 
 #pragma pack(push,1)
 
 struct header
 {
-	uint32_t magic;
-	uint32_t header_size;
+	uint32_t magic; 		// 4 byte
+	uint32_t header_size;	// 4 byte
 
-	uint8_t payload;
-	uint8_t crypt;
-	uint8_t padding[2];
+	uint8_t payload; 		// 1 byte
+	uint8_t crypt;			// 1 byte
+	uint8_t padding[2];		// 2 byte
 	// 12 byte
 
 };
 
 struct metadata
 {
-	uint32_t length;
+	uint32_t length; // 4 byte
 
 	union
 	{
 			struct
 			{
-				uint64_t orig_length; // 16 byte
-				uint64_t block_count; // 16 byte
-				uint32_t block_size;  // 8 byte
-				// 24 byte
+				uint64_t orig_length; // 8 byte
+				uint64_t block_count; // 8 byte
+				uint32_t block_size;  // 4 byte
+				uint32_t crc32;  // 4 byte
+				// 28 byte
 			} file;
 			struct {
-				uint64_t orig_length; // 16 byte
-				uint64_t block_count; // 16 byte
-				uint32_t block_size;  // 8 byte
+				uint64_t orig_length; // 8 byte
+				uint64_t block_count; // 8 byte
+				uint32_t block_size;  // 4 byte
 				// 24 byte
 			} key;
 	};
@@ -85,7 +87,6 @@ struct metadata
 }
 
 }
-
 
 
 

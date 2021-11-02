@@ -9,6 +9,8 @@
 //#include <ctb-container.h>
 
 #include "ctb-container.h"
+#include "ctb-utils.h"
+
 const uint32_t BLOCK_SIZE = 32;
 const char * CRYPT_NAME[4] = {"RAW_", "ECB_", "CBC_", "CTR_"};
 const char * IV = "dota";
@@ -136,8 +138,13 @@ void create_container(std::string name_file)
 	md.file.block_count = filesize / (BLOCK_SIZE / 8);
 	if (filesize % (BLOCK_SIZE / 8) > 0)
 		md.file.block_count++;
+	auto file_header_pos = dst_file.tellp();
 	dst_file.write(reinterpret_cast<char*>(&md), FILE_METADATA_SIZE);
 	dst_file.write(name_file.c_str(), name_length + 1);
+
+	uint32_t crc32 = 0;
+	uint32_t crc32_table[256];
+	ctb::utils::generate_crc32_lut(crc32_table);
 
 	uint32_t word_crypt = *((uint32_t*)IV);
 
@@ -146,6 +153,10 @@ void create_container(std::string name_file)
 		uint8_t buffer[BLOCK_SIZE / 8] {};
 		src_file.read(reinterpret_cast<char*>(&buffer[0]),
 				BLOCK_SIZE / 8);
+
+		for (unsigned k = 0; k < BLOCK_SIZE /8; k++)
+			crc32 = ctb::utils::update_crc32(crc32_table, buffer[k], crc32);
+
 		switch(choose_crypto)
 		{
 			case 0:
@@ -337,6 +348,10 @@ void create_container(std::string name_file)
 		}
 	}
 
+	md.file.crc32 = crc32;
+	dst_file.seekp(file_header_pos);
+	dst_file.write(reinterpret_cast<char*>(&md), FILE_METADATA_SIZE);
+
 	src_file.close();
 	dst_file.close();
 	std::cout << "Create encryption container" << std::endl;
@@ -431,6 +446,12 @@ void extract_container(std::string name_file)
 	dst_file.open(orig_file_name.c_str(), std::ios::binary);
 	src_file.seekg(pos_after_header + md.length);
 
+	uint32_t crc32 = 0;
+	uint32_t crc32_table[256];
+
+	ctb::utils::generate_crc32_lut(crc32_table);
+
+
 	uint32_t word_crypt = *((uint32_t*)IV);
 
 	while(md.file.orig_length > 0)
@@ -438,6 +459,10 @@ void extract_container(std::string name_file)
 			uint8_t buffer[BLOCK_SIZE / 8] {};
 			src_file.read(reinterpret_cast<char*>(&buffer[0]),
 					BLOCK_SIZE / 8);
+
+			for (unsigned k = 0; k < BLOCK_SIZE /8; k++)
+						crc32 = ctb::utils::update_crc32(crc32_table, buffer[k], crc32);
+
 			uint64_t bytes_to_write = std::min<unsigned long>(4UL, md.file.orig_length);
 
 			switch(crypto_type)
@@ -637,6 +662,9 @@ void extract_container(std::string name_file)
 	dst_file.close();
 	src_file.close();
 
+	if (crc32 !=md.file.crc32)
+		std::cout << "WARNING! CRC MISMATCH!" << std::endl;
+
 	std::cout << "Extract container" << std::endl;
 }
 
@@ -717,9 +745,9 @@ int main(int argc, char ** argv)
 			break;
 		case 2:
 			std::cout << "Enter file name:" << std::endl;
-			std::cin >> name_file;
+			//std::cin >> name_file;
+			name_file = "test.txt"; // DEBAG
 			std::cout << "Name: "<< name_file << std::endl;
-			//name_file = "test.txt"; // DEBAG
 			create_container(name_file);
 			break;
 		case 3:
