@@ -11,7 +11,7 @@
 #include "ctb-container.h"
 #include "ctb-utils.h"
 #include "ctb-hash.h"
-
+#include "ctb-crypt-gost.h"
 
 const uint8_t message[72] {
 		0xfb,0xe2,0xe5,0xf0,0xee,0xe3,0xc8,0x20,0xfb,0xea,
@@ -733,10 +733,35 @@ void key_container(std::string name_file, uint64_t key_length)
 	std::cout << "Create key container" << std::endl;
 }
 
+namespace ctb
+{
+namespace crypt_gost
+{
+extern void gost_34_12_2012_64_t_transform(
+		const uint8_t	*src_block,
+		uint8_t			*dst_block);
+}
+}
+void test_magma()
+{
+	uint32_t s = 0x2a196f34;
+	uint32_t t;
+	uint8_t *s_ptr = reinterpret_cast<uint8_t*>(&s);
+	uint8_t *t_ptr = reinterpret_cast<uint8_t*>(&t);
+
+	ctb::crypt_gost::gost_34_12_2012_64_t_transform(s_ptr, t_ptr);
+
+	std::cout <<
+			std::hex <<
+			std::setfill('0') <<
+			std::setw(8) <<
+			t << std::endl;
+}
 
 int main(int argc, char ** argv)
 {
-	ctb::hash::gost_34_11_hash_512();
+	test_magma();
+	//ctb::hash::gost_34_11_hash_512();
 	for (int i = 0; i < argc; i++)
 		std::cout << argv[i] << std::endl;
 	int choose;

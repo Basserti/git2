@@ -19,7 +19,7 @@ static const uint8_t TABLE_PI[8][16] {
 			{1, 7, 14, 13, 0, 5, 8, 3, 4, 15, 10, 6, 9, 12, 11, 2}
 };
 using crypto_function = std::function<void(
-		const uint8_t *, const uint8_t, uint8_t *)>;
+		const uint8_t *, const uint8_t *, uint8_t *)>;
 
 void gost_34_12_2012_64_t_transform(
 		const uint8_t	*src_block,
