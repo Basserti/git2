@@ -297,19 +297,6 @@ vec512_t L(const vec512_t &a)
 
 }
 
-vec512_t KeySchedule(const vec512_t &K, const int i)
-{
-	vec512_t result;
-
-	result = K ^ TABLE_C[i];
-	result = S(result);
-	result = P(result);
-	result = L(result);
-
-	return result;
-
-}
-
 vec512_t E(const vec512_t &k, const vec512_t &m)
 {
 	vec512_t result;
@@ -408,7 +395,7 @@ void gost_34_11_hash_512()
 		N.u64[i]   = 0x00000000;
 		sum.u64[i] = 0x00000000;
 	}
-	int mess_length = sizeof(message3)/sizeof(uint8_t) ;
+	int mess_length = sizeof(message)/sizeof(uint8_t) ;
 	int mess_length2 = mess_length * 8;
 
 
@@ -425,7 +412,7 @@ void gost_34_11_hash_512()
 		std::cout << "mess_length2 >= 512" << std::endl;
 		for (; i_m < 64; i_m++)
 		{
-				m.u8[i_m] = message3[i_m];
+				m.u8[i_m] = message[i_m];
 		}
 		std::cout << m << " = m hex2" << std::endl;
 
@@ -443,7 +430,7 @@ void gost_34_11_hash_512()
 	}
 	for (; i_m < mess_length; i_m++)
 		{
-			m.u8[i_m] = message3[i_m];
+			m.u8[i_m] = message[i_m];
 		}
 
 	std::cout << m << " = m hex" << std::endl;

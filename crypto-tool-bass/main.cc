@@ -12,6 +12,7 @@
 #include "ctb-utils.h"
 #include "ctb-hash.h"
 
+
 const uint8_t message[72] {
 		0xfb,0xe2,0xe5,0xf0,0xee,0xe3,0xc8,0x20,0xfb,0xea,
 		0xfa,0xeb,0xef,0x20,0xff,0xfb,0xf0,0xe1,0xe0,0xf0,
@@ -732,14 +733,15 @@ void key_container(std::string name_file, uint64_t key_length)
 	std::cout << "Create key container" << std::endl;
 }
 
+
 int main(int argc, char ** argv)
 {
+	ctb::hash::gost_34_11_hash_512();
 	for (int i = 0; i < argc; i++)
 		std::cout << argv[i] << std::endl;
 	int choose;
 	int key_length = 16;
 	std::string name_file;
-	//ctb::hash::gost_34_11_hash_512();
 	{
 		std::cout << "Choose an action\n"
 				<< "1. Create Key container\n"
